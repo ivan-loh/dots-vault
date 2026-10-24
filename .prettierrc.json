@@ -1,0 +1,19 @@
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "overrides": [
+    {
+      "files": "shared-notes/*.html.txt",
+      "options": {
+        "parser": "html"
+      }
+    },
+    {
+      "files": "shared-notes/*.css.txt",
+      "options": {
+        "parser": "css"
+      }
+    }
+  ]
+}

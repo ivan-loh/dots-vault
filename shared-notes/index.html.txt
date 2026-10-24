@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Shared Notes · dots-vault</title>
+    <link rel="stylesheet" href="/shared-notes/styles.css" />
+    <script type="module" src="/shared-notes/app.mjs"></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/vault">dots-vault</a
+      ><a class="private-link" href="/vault">Private vault ↗</a>
+    </header>
+    <main>
+      <div class="page-heading">
+        <p class="eyebrow">SEPARATE PUBLISHED COPIES</p>
+        <h1>Shared Notes</h1>
+        <p>Choose exactly what your connected agents can read.</p>
+      </div>
+      <details class="boundary-details">
+        <summary>Who can read these notes?</summary>
+        <p class="warning" id="boundary">
+          Published copies are plaintext to this service and agents using your authorized account
+          connection, including non-dot sessions. They remain readable while your private vault is
+          locked. Do not publish passwords, recovery keys or other secrets. Your encrypted private
+          notes are separate and never copied automatically.
+        </p>
+      </details>
+      <p id="status" tabindex="-1" role="status" aria-live="polite">
+        Load your published notes, or create a new one. Drafts are not saved.
+      </p>
+      <div class="layout">
+        <section id="list-panel" aria-labelledby="list-heading">
+          <div class="toolbar">
+            <h2 id="list-heading" tabindex="-1">Published notes</h2>
+            <button id="refresh" type="button" class="secondary">Load shared notes</button>
+          </div>
+          <button id="new" type="button">New shared note</button>
+          <ul id="notes"></ul>
+          <p id="empty" class="empty">Shared notes haven’t been loaded yet.</p>
+        </section>
+        <section id="editor-panel" hidden aria-labelledby="draft-heading">
+          <button id="back" type="button" class="back">← Back to shared notes</button>
+          <h2 id="draft-heading" tabindex="-1">Note editor</h2>
+          <p id="draft-empty">Select a published copy or create a new note.</p>
+          <section id="pending" hidden aria-labelledby="pending-heading">
+            <h3 id="pending-heading" tabindex="-1">Write result not confirmed</h3>
+            <p>
+              Do not assume a failed response means no write. Check its status or retry the exact
+              approved operation. Clearing text removes the retry payload, not any published copy.
+            </p>
+            <div class="toolbar">
+              <button id="check" type="button">Check status</button
+              ><button id="retry" type="button" class="secondary">Retry exact operation</button>
+            </div>
+            <details>
+              <summary>Other options</summary>
+              <p class="small">
+                Discarding tracking does not cancel or revoke anything. The operation may have
+                completed or may still complete.
+              </p>
+              <button id="forget" type="button" class="secondary">Discard local tracking</button>
+            </details>
+          </section>
+          <div id="editor" hidden>
+            <p id="revision" class="revision"></p>
+            <p id="draft-warning" class="draft-warning">
+              Drafts are not saved. Switching away from this tab or being inactive for 2 minutes
+              clears the text.
+            </p>
+            <label for="title">Title</label
+            ><input
+              id="title"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="counts status draft-warning"
+            /><label for="body">Note</label
+            ><textarea
+              id="body"
+              rows="8"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="counts status draft-warning"
+            ></textarea>
+            <p id="counts" class="small"></p>
+            <p class="publication-warning">
+              Publishing stores this exact copy as plaintext, not private-vault encryption. The
+              service and agents using your authorized account connection can read it, including
+              non-dot sessions, even while your private vault is locked. Never include passwords,
+              recovery keys or other secrets.
+            </p>
+            <button id="publish" type="button" class="primary-wide">
+              Review before publishing
+            </button>
+            <div id="revoke-area" class="danger-area" hidden>
+              <h3>Stop sharing this version</h3>
+              <p class="small">
+                Blocks future reads of the selected revision. Existing copies cannot be recalled.
+              </p>
+              <button id="revoke" type="button" class="danger">Review stopping access</button>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="clear-area">
+        <button id="clear" type="button" class="text-button">Clear text in this tab</button
+        ><span class="small">Published copies remain shared.</span>
+      </div>
+      <footer>
+        Revocation blocks future reads, but cannot recall existing copies, service backups or reads
+        selected before revocation. Local text is cleared on hiding this tab, navigation, restored
+        pages and two minutes of inactivity. This is not a guarantee of memory erasure.
+      </footer>
+    </main>
+    <dialog id="review" aria-labelledby="review-heading" aria-describedby="review-warning">
+      <h2 id="review-heading" tabindex="-1">Review exact operation</h2>
+      <p id="review-warning"></p>
+      <p class="small">
+        This is the full request. Non-ASCII characters are shown as Unicode escapes to reveal
+        invisible or direction-changing characters; the original text is preserved. Confirmation
+        expires after 60 seconds.
+      </p>
+      <pre id="exact" tabindex="0"></pre>
+      <div class="toolbar review-actions">
+        <button id="cancel" type="button" class="secondary">Back to editor</button
+        ><button id="confirm" type="button" aria-describedby="review-warning">Confirm</button>
+      </div>
+    </dialog>
+  </body>
+</html>

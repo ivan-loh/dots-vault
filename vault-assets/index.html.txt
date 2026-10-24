@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>dots-vault · Private vault</title><link rel="stylesheet" href="/vault/assets/styles.css"><script type="module" src="/vault/assets/app.js"></script></head>
+<body class="is-locked">
+<div class="evaluation" id="mode-warning" hidden><strong>Synthetic data only</strong><span>Do not enter real passwords or recovery material. This evaluation is not production-ready.</span></div>
+<div class="shell">
+<aside class="sidebar"><a class="brand" href="/vault" aria-label="dots-vault home"><span class="brandmark" aria-hidden="true"><i></i><i></i><i></i></span><span>dots-vault</span></a><p class="sidebar-label" id="sidebar-label" hidden>SECTIONS</p><nav id="navigation" aria-label="Main navigation"></nav><div class="sidebar-bottom" id="sidebar-bottom" hidden><a href="/shared-notes">Shared Notes ↗</a><p>Separate published copies</p></div></aside>
+<div class="workspace"><header class="topbar" id="topbar" hidden><span class="breadcrumb">Personal / <strong id="view-name">Vault</strong></span><div class="top-actions"><span id="lock-status" class="pill">Locked</span><button id="lock-button" class="button subtle" type="button" hidden>Lock private vault</button><span class="avatar" aria-label="Private vault">dv</span></div></header><main id="main" tabindex="-1"></main><footer id="private-footer" hidden>Encryption is one boundary, not a security guarantee. Browser and deployment integrity still matter.</footer></div>
+</div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body></html>

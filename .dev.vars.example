@@ -1,0 +1,5 @@
+# Runtime bindings for a trusted authenticated deployment only.
+# Keep real values in the hosting provider's configuration, not in Git.
+# An empty owner/origin intentionally disables access.
+VAULT_OWNER_SUBJECT=
+VAULT_CANONICAL_ORIGIN=

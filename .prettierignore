@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+.vinext/
+.wrangler/
+.sites-runtime/
+artifacts/
+coverage/
+package-lock.json
+vault-assets/
+vault-server/
+scripts/vite/sites-vite-plugin.ts
+drizzle/
+*.tsbuildinfo
