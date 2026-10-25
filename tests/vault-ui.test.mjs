@@ -120,7 +120,8 @@ test('locked landing is an inline password form with no private navigation', () 
   assert.equal(h.find('form').length, 1);
   assert.equal(h.find('dialog').length, 0);
   assert.equal(h.el('navigation').children.length, 0);
-  assert.match(h.text(), /Unlock your private vault/);
+  assert.equal(h.find('h1')[0].textContent, 'Unlock');
+  assert.equal(h.find('h1')[0].className, 'visually-hidden');
   assert.equal(h.find('input')[0].getAttribute('autocomplete'), 'current-password');
   assert.equal(h.document.activeElement, undefined);
   assert.match(h.text(), /Published copies remain readable/);
@@ -233,14 +234,22 @@ test('synthetic mode retains explicit evaluation warning', () => {
   assert.equal(h.el('mode-warning').hidden, false);
   assert.match(h.el('mode-warning').textContent, /Synthetic data only/);
 });
-test('unlock makes encryption claim rather than absolute privacy and keeps browser risk visible', () => {
+test('unlock keeps accurate risk and decryption guidance inside secondary help', () => {
   const h = harness();
   assert.doesNotMatch(h.text(), /stay private/);
+  const help = h.find('details')[0];
+  assert.equal(help.getAttribute('open'), null);
+  assert.match(help.textContent, /Not independently audited/);
+  assert.match(help.textContent, /Decryption happens in this browser/);
+  assert.match(help.textContent, /two minutes/);
+  assert.match(help.textContent, /Published copies remain readable/);
   assert.ok(
-    h
+    !h
       .el('main')
       .children.some(
-        (e) => /Not independently audited/.test(e.textContent) && e.tagName !== 'DETAILS',
+        (e) =>
+          e.tagName !== 'DETAILS' &&
+          /Not independently audited|Decryption happens|Published copies/.test(e.textContent),
       ),
   );
 });
@@ -304,7 +313,12 @@ test('vault focus ring uses the higher contrast mobile token', () => {
 });
 
 function unlocked(h, items = []) {
-  h.state.session = { locked: false, envelope: { revision: 1 }, items: () => items, discard() {} };
+  h.state.session = {
+    locked: false,
+    envelope: { revision: 1 },
+    items: () => items,
+    discard() {},
+  };
   h.render();
   return h;
 }
@@ -505,4 +519,100 @@ test('REVIEW: first-time creation exposes modal Lock as soon as temporary keys e
   h.render();
   lock = modalElements(h, 'button').find((e) => e.textContent === 'Lock');
   assert.equal(lock.hidden, false);
+});
+
+function visibleWords(node) {
+  if (node.hidden || node.className.split(' ').includes('visually-hidden')) return [];
+  if (node.tagName === '#TEXT') return node.textContent.trim().split(/\s+/).filter(Boolean);
+  if (node.tagName === 'DETAILS' && node.getAttribute('open') === null)
+    return node.children.filter((e) => e.tagName === 'SUMMARY').flatMap(visibleWords);
+  return node.children.flatMap(visibleWords);
+}
+test('MINIMAL: ordinary unlock has eight main words and one primary action', () => {
+  const h = harness();
+  assert.deepEqual(visibleWords(h.el('main')), [
+    'Master',
+    'password',
+    'Unlock',
+    'Recovery',
+    '&',
+    'help',
+    'Shared',
+    'Notes',
+  ]);
+  const form = h.find('form')[0],
+    input = h.find('input')[0];
+  assert.equal(form.children.filter((e) => e.tagName === 'BUTTON').length, 1);
+  assert.equal(form.children.find((e) => e.tagName === 'BUTTON').textContent, 'Unlock');
+  assert.equal(input.parentNode.tagName, 'LABEL');
+  assert.match(input.parentNode.textContent, /Master password/);
+  assert.equal(input.getAttribute('aria-describedby'), 'unlock-error');
+  assert.equal(input.getAttribute('type'), 'password');
+  assert.equal(input.getAttribute('required'), '');
+  assert.ok(h.find('details')[0].children.some((e) => e.textContent === 'Use a recovery key'));
+});
+test('MINIMAL: recovery round trip clears values and keeps the alternate action discoverable', async () => {
+  const h = harness();
+  h.find('input')[0].value = 'synthetic-password';
+  await h
+    .find('button')
+    .find((e) => e.textContent === 'Use a recovery key')
+    .emit('click');
+  assert.equal(h.find('details')[0].getAttribute('open'), '');
+  assert.equal(h.find('input')[0].getAttribute('autocomplete'), 'off');
+  assert.equal(h.find('input')[0].value, '');
+  assert.equal(h.document.activeElement, h.find('input')[0]);
+  h.find('input')[0].value = 'synthetic-recovery-key';
+  await h
+    .find('button')
+    .find((e) => e.textContent === 'Use master password')
+    .emit('click');
+  assert.equal(h.find('details')[0].getAttribute('open'), null);
+  assert.equal(h.find('input')[0].value, '');
+  assert.equal(h.document.activeElement, h.find('input')[0]);
+});
+test('MINIMAL: recovery errors restore Unlock and hidden-page interruption clears the recovery field', async () => {
+  const h = harness({
+    unlock: () => {
+      throw Object.assign(Error(), { code: 'UNLOCK_FAILED' });
+    },
+  });
+  await h
+    .find('button')
+    .find((e) => e.textContent === 'Use a recovery key')
+    .emit('click');
+  h.find('input')[0].value = 'wrong-synthetic-recovery';
+  await h.find('form')[0].emit('submit');
+  assert.equal(
+    h.find('button').find((e) => e.getAttribute('type') === 'submit').textContent,
+    'Unlock',
+  );
+  assert.equal(h.find('input')[0].value, '');
+  assert.equal(h.el('unlock-error').hidden, false);
+  assert.equal(h.find('details')[0].getAttribute('open'), '');
+  h.find('input')[0].value = 'unfinished-synthetic-recovery';
+  h.document.hidden = true;
+  await h.event(h.document, 'visibilitychange');
+  assert.equal(h.find('input')[0].value, '');
+  assert.equal(h.find('input')[0].getAttribute('name'), 'password');
+  assert.equal(h.find('details')[0].getAttribute('open'), null);
+});
+
+test('MINIMAL: secondary recovery stays disabled during unlock and restores after failure', async () => {
+  const d = deferred(),
+    h = harness({ unlock: () => d.promise });
+  const form = h.find('form')[0],
+    alternate = h.find('button').find((e) => e.textContent === 'Use a recovery key');
+  h.find('input')[0].value = 'synthetic-password';
+  const pending = form.emit('submit');
+  await tick();
+  assert.equal(alternate.disabled, true);
+  await alternate.emit('click');
+  assert.equal(h.find('form')[0], form);
+  assert.equal(h.find('input')[0].getAttribute('name'), 'password');
+  d.reject(Object.assign(Error(), { code: 'UNLOCK_FAILED' }));
+  await pending;
+  assert.equal(alternate.disabled, false);
+  assert.equal(h.find('input')[0].value, '');
+  assert.equal(h.document.activeElement, h.find('input')[0]);
 });

@@ -43,6 +43,10 @@ Before publication, explain that the copy is plaintext to the service and agents
 
 Local drafts are not saved. **Clearing & privacy** contains **Clear text in this tab**, which does not revoke a published copy. For an uncertain write, use **Check publish status** or **Check revocation status** before retrying the exact approved operation. Revocation blocks future selection but cannot recall existing copies, backups, or reads selected before revocation. Never promise erasure.
 
+## Owner-only private unlock
+
+In this source version, the owner enters the **Master password** and selects **Unlock**. To use recovery, open **Recovery & help** and choose **Use a recovery key**; **Use master password** switches back. Enter secrets only in the site, never in chat. First-time setup is separate, not a remedy for an existing unlock failure. Site sign-in does not decrypt the vault, and Shared Notes remains a separate, reachable screen while locked.
+
 ## Read a fictional fixture
 
 Use the actual fixture list, then read only the requested returned `fixture_id`. Require a successful outer result, `isError: false` where exposed, the matching ID, `synthetic: true`, and its reference marker. Label it fictional, never a private or Shared Note. The dummy credential works on no account.

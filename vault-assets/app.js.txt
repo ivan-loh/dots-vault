@@ -4539,9 +4539,9 @@ function unlockForm(main) {
   secret.input.setAttribute("name", recovery ? "recovery-key" : "password");
   secret.input.setAttribute("autocomplete", recovery ? "off" : "current-password");
   secret.input.setAttribute("required", "");
-  secret.input.setAttribute("aria-describedby", "unlock-error unlock-help");
+  secret.input.setAttribute("aria-describedby", "unlock-error");
   const error = el("p", { id: "unlock-error", class: "form-error", role: "alert", tabindex: "-1", hidden: true });
-  const submit = el("button", { class: "button unlock-submit", type: "submit" }, "Unlock vault");
+  const submit = el("button", { class: "button unlock-submit", type: "submit" }, "Unlock");
   const alternate = button(recovery ? "Use master password" : "Use a recovery key", () => {
     if (state.busy) return;
     secret.input.value = "";
@@ -4549,7 +4549,7 @@ function unlockForm(main) {
     render();
     $2("unlock-secret")?.focus();
   }, "subtle");
-  const form = el("form", { class: "unlock-form", "aria-label": "Unlock your private vault" }, secret.node, error, submit, alternate);
+  const form = el("form", { class: "unlock-form", "aria-label": "Unlock your private vault" }, secret.node, error, submit);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (state.busy || state.pending) return;
@@ -4587,11 +4587,12 @@ function unlockForm(main) {
       if (form.isConnected) {
         form.removeAttribute("aria-busy");
         submit.disabled = alternate.disabled = false;
-        submit.textContent = "Unlock vault";
+        submit.textContent = "Unlock";
       }
     }
   });
-  main.append(form, el("p", { id: "unlock-help", class: "compact-note" }, "Decryption happens in this browser. Your password is not sent to the server."));
+  main.append(form);
+  return alternate;
 }
 function header(eyebrow, heading, description, action) {
   return el("div", { class: "page-heading" }, el("div", {}, eyebrow ? el("p", { class: "eyebrow" }, eyebrow) : null, el("h1", {}, heading), description ? el("p", { class: "lead" }, description) : null), action);
@@ -4639,10 +4640,23 @@ function dotBoundary() {
   return notice("Private vault entries are encrypted and unavailable to agents. Shared Notes are separate copies you explicitly publish; locking this vault does not revoke them.", true);
 }
 function lockedView(main) {
-  main.append(header("", state.envelope ? "Unlock your private vault" : "Create your private vault", state.envelope ? "Your logins, notes and contacts are encrypted in your private vault." : "Choose a master password in this browser. It is never sent to the server."));
-  if (state.envelope) unlockForm(main);
-  else main.append(el("div", { class: "setup-actions" }, button("Create vault", setup), button("Restore encrypted backup", () => restore(true), "secondary")), el("p", { class: "compact-note" }, "Losing both your password and recovery key means losing access. No one can reset them for you."));
-  main.append(el("p", { class: "compact-note unlock-risk" }, "Not independently audited. A compromised browser or app update can read an unlocked vault."), el("details", { class: "unlock-details" }, el("summary", {}, "Security & help"), el("p", {}, "Never share your master password or recovery key in chat. Keep your recovery key separate from encrypted backups."), el("p", {}, "Leaving this tab or being inactive for two minutes locks the vault and clears unsaved forms.")), el("div", { class: "shared-entry" }, el("a", { href: "/shared-notes" }, "Shared Notes"), el("p", { class: "compact-note" }, "Published copies remain readable while your private vault is locked.")));
+  let alternate;
+  if (state.envelope) {
+    main.append(el("h1", { class: "visually-hidden" }, "Unlock"));
+    alternate = unlockForm(main);
+  } else {
+    main.append(header("", "Create your private vault", "Choose a master password in this browser. It is never sent to the server."), el("div", { class: "setup-actions" }, button("Create vault", setup), button("Restore encrypted backup", () => restore(true), "secondary")), el("p", { class: "compact-note" }, "Losing both your password and recovery key means losing access. No one can reset them for you."));
+  }
+  const risk = el("p", { class: "compact-note unlock-risk" }, "Not independently audited. A compromised browser or app update can read an unlocked vault.");
+  const sharedHelp = el("p", { class: "compact-note" }, "Published copies remain readable while your private vault is locked.");
+  const help = el("details", { class: "unlock-details", open: Boolean(state.envelope && state.unlockKind === "recovery") }, el("summary", {}, state.envelope ? "Recovery & help" : "Security & help"), alternate,
+    state.envelope ? el("p", { id: "unlock-help" }, "Decryption happens in this browser. Your password is not sent to the server.") : null,
+    state.envelope ? risk : null,
+    el("p", {}, "Never share your master password or recovery key in chat. Keep your recovery key separate from encrypted backups."),
+    el("p", {}, "Leaving this tab or being inactive for two minutes locks the vault and clears unsaved forms."),
+    state.envelope ? sharedHelp : null);
+  if (!state.envelope) main.append(risk);
+  main.append(help, el("div", { class: "shared-entry" }, el("a", { href: "/shared-notes" }, "Shared Notes"), state.envelope ? null : sharedHelp));
 }
 function listView(main) {
   const isContacts = state.view === "contacts", isNotes = state.view === "notes";

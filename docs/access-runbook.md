@@ -23,3 +23,7 @@ Skills guide tool use; they cannot create tools, authorize decryption, or unlock
 Shared Notes automatically loads titles, never bodies. Selecting a listed title opens its exact revision read-only. Use **Edit** to start a local draft, then **Review before publishing** and **Publish this exact copy**. Use **Stop sharing** from the read-only note and **Revoke this exact revision** for revocation. Full reviews retain the exact request, destination, consequences and 60-second expiry.
 
 Successful publication or revocation refreshes metadata only if the same visible, uncleared screen is still current. After local clearing, select **Refresh**. **Clearing & privacy** contains **Clear text in this tab**; this does not revoke a published copy. Deployed UI versions can differ, so inspect the actual intended deployment before guiding someone through it.
+
+## Private unlock in this source version
+
+The owner enters the **Master password** and selects **Unlock**. For recovery, open **Recovery & help**, choose **Use a recovery key**, then enter the **Recovery key** and select **Unlock**. **Use master password** switches back. Enter these secrets only in the site, never in chat. First-time setup remains separate; do not create a new vault to solve an existing unlock failure.
