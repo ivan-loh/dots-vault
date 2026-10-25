@@ -34,12 +34,14 @@ There are no agent write tools. The owner uses the browser's Shared Notes screen
 The labels below match this source snapshot; deployed UI versions may differ. At the verified intended deployment, identify the equivalent actions and verify the exact review before continuing:
 
 - Create: **New shared note** → enter **Title** and **Note** → **Review before publishing** → **Publish this exact copy**.
-- Edit: select a published copy, change its fields, and use the publication review flow.
-- Revoke: select the copy → **Review stopping access** → **Revoke this exact revision**.
+- Read: titles load automatically. Select a title to read that exact revision without entering editing.
+- Edit: select a published copy → **Edit** → change its fields → use the publication review flow.
+- Revoke: select the copy → **Stop sharing** → **Revoke this exact revision**.
+- List: confirmed publication/revocation refreshes titles only while the same visible screen remains current. After local clearing, use **Refresh**; bodies never reload automatically.
 
 Before publication, explain that the copy is plaintext to the service and agents using the authorized account connection, including non-dot sessions, even while the private vault is locked. Do not publish passwords, recovery keys, or other secrets. Never automatically copy or decrypt private vault records.
 
-Local drafts are not saved. **Clear text in this tab** does not revoke a published copy. For an uncertain write, use **Check publish status** or **Check revocation status** before retrying the exact approved operation. Revocation blocks future selection but cannot recall existing copies, backups, or reads selected before revocation. Never promise erasure.
+Local drafts are not saved. **Clearing & privacy** contains **Clear text in this tab**, which does not revoke a published copy. For an uncertain write, use **Check publish status** or **Check revocation status** before retrying the exact approved operation. Revocation blocks future selection but cannot recall existing copies, backups, or reads selected before revocation. Never promise erasure.
 
 ## Read a fictional fixture
 

@@ -3,10 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { SharedSession, reviewText } from './session.mjs';
 import { handleSharedRequest } from './ingress.mjs';
-const code = readFileSync(new URL('./app.mjs', import.meta.url), 'utf8').replace(
-  /^import .*$/gm,
-  '',
-);
+const code = readFileSync(new URL('./app.mjs', import.meta.url), 'utf8')
+  .replace(/^import .*$/gm, '')
+  .replace(/run\(refreshMetadata\);\s*$/, 'const initialLoad=run(refreshMetadata);');
 const transportCode = readFileSync(new URL('./transport.mjs', import.meta.url), 'utf8').replace(
   'export function createApi',
   'function createApi',
@@ -23,17 +22,19 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const tick = () => new Promise((r) => setImmediate(r));
-function harness({ confirm = () => true } = {}) {
+function harness({ confirm = () => true, transport: initialTransport } = {}) {
   const els = new Map(),
     timers = new Map(),
     requests = [],
     confirmations = [];
   let count = 0,
     captured,
-    transport = async () =>
-      new Response(JSON.stringify({ result: { notes: [] } }), {
-        headers: { 'content-type': 'application/json' },
-      });
+    transport =
+      initialTransport ??
+      (async () =>
+        new Response(JSON.stringify({ result: { notes: [] } }), {
+          headers: { 'content-type': 'application/json' },
+        }));
   const document = {
     hidden: false,
     listeners: {},
@@ -88,9 +89,9 @@ function harness({ confirm = () => true } = {}) {
   };
   class Session extends SharedSession {
     constructor(...args) {
-      super(...args);
-      // Expose the constructed test session without changing the application API.
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      super(
+        ...args,
+      ); /* eslint-disable-next-line @typescript-eslint/no-this-alias -- Capture the real session for deterministic UI tests. */
       captured = this;
     }
   }
@@ -108,9 +109,12 @@ function harness({ confirm = () => true } = {}) {
     'SharedSession',
     'reviewText',
     'confirm',
-    transportCode + '\n' + code,
+    transportCode +
+      '\n' +
+      code +
+      '\nreturn typeof initialLoad === \"undefined\" ? Promise.resolve() : initialLoad;',
   );
-  start(
+  const ready = start(
     document,
     window,
     { origin },
@@ -128,6 +132,7 @@ function harness({ confirm = () => true } = {}) {
     },
   );
   return {
+    ready,
     session: captured,
     el: (id) => els.get(id),
     doc: document,
@@ -143,6 +148,7 @@ function harness({ confirm = () => true } = {}) {
   };
 }
 async function draft(h, title = 'Synthetic', body = 'Body') {
+  await h.ready;
   await h.el('new').emit('click');
   h.el('title').value = title;
   await h.el('title').emit('input');
@@ -185,6 +191,7 @@ test('INTEGRATION: real browser ingress list response populates catalog', async 
   const h = harness(),
     notes = [{ note_id: uuid(), revision: 1, title: 'Published synthetic' }];
   viaIngress(h, fixtureStore(notes));
+  await h.ready;
   await h.el('refresh').emit('click');
   await tick();
   assert.deepEqual(h.session.view().notes, notes);
@@ -226,7 +233,7 @@ test('INPUT: oversize is preserved and rejected; controls have no native truncat
   assert.equal(h.session.view().draft.title, title);
   assert.equal(h.session.view().draft.body, body);
   assert.equal(h.session.view().review, null);
-  assert.equal(h.requests.length, 0);
+  assert.equal(h.requests.filter((r) => r.body.method !== 'list').length, 0);
   assert.match(h.el('status').textContent, /not been truncated/);
 });
 test('CONSENT: heading receives focus; full ASCII-safe review preserves submitted originals', async () => {
@@ -246,8 +253,8 @@ test('CONSENT: heading receives focus; full ASCII-safe review preserves submitte
   assert.equal(parsed.destination, origin);
   await h.el('confirm').emit('click');
   await tick();
-  assert.equal(h.requests[0].body.params.body, body);
-  assert.equal(h.requests[0].body.params.title, title);
+  assert.equal(h.requests.find((r) => r.body.method === 'publish').body.params.body, body);
+  assert.equal(h.requests.find((r) => r.body.method === 'publish').body.params.title, title);
   assert.equal(h.session.view().pending, null);
 });
 test('INTEGRATION: different session owner denies all store access', async () => {
@@ -282,10 +289,10 @@ test('STATE: duplicate submission cannot issue second mutation; conceal retains 
   await review(h);
   const pendingClick = h.el('confirm').emit('click');
   await tick();
-  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests.filter((r) => r.body.method === 'publish').length, 1);
   await h.el('confirm').emit('click');
   await tick();
-  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests.filter((r) => r.body.method === 'publish').length, 1);
   await h.el('clear').emit('click');
   assert.equal(h.session.view().draft, null);
   assert.equal(h.session.view().busy, true);
@@ -293,7 +300,11 @@ test('STATE: duplicate submission cannot issue second mutation; conceal retains 
   d.resolve(
     new Response(
       JSON.stringify({
-        result: { note_id: h.requests[0].body.params.note_id, revision: 1, state: 'shared' },
+        result: {
+          note_id: h.requests.find((r) => r.body.method === 'publish').body.params.note_id,
+          revision: 1,
+          state: 'shared',
+        },
       }),
     ),
   );
@@ -364,7 +375,7 @@ test('TRANSPORT: pending mutation uses a finite abort deadline and rejects redir
   await review(h);
   const pendingClick = h.el('confirm').emit('click');
   await tick();
-  const opts = h.requests[0].options;
+  const opts = h.requests.find((r) => r.body.method === 'publish').options;
   assert.ok(opts.signal instanceof AbortSignal, 'fetch needs an AbortSignal');
   assert.equal(opts.redirect, 'error');
   const deadline = [...h.timers.values()].find((t) => t.ms > 0 && t.ms < 120000);
@@ -380,6 +391,7 @@ test('STATE: stale list completion does not claim an empty refreshed catalog aft
   const d = deferred(),
     h = harness();
   h.setTransport(() => d.promise);
+  await h.ready;
   const pendingClick = h.el('refresh').emit('click');
   await tick();
   await h.el('clear').emit('click');
@@ -387,11 +399,12 @@ test('STATE: stale list completion does not claim an empty refreshed catalog aft
   await pendingClick;
   await tick();
   assert.deepEqual(h.session.view().notes, []);
-  assert.equal(h.el('empty').textContent, 'Shared notes haven’t been loaded yet.');
+  assert.equal(h.el('empty').textContent, 'Refresh to load shared notes.');
 });
-test('STATE: successful publication invalidates the loaded catalog and erases review DOM', async () => {
+test('STATE: successful publication refreshes metadata and erases review DOM', async () => {
   const h = harness();
   viaIngress(h, fixtureStore([{ note_id: uuid(), revision: 1, title: 'Existing' }]));
+  await h.ready;
   await h.el('refresh').emit('click');
   await tick();
   assert.equal(h.session.view().loaded, true);
@@ -399,8 +412,8 @@ test('STATE: successful publication invalidates the loaded catalog and erases re
   await review(h);
   await h.el('confirm').emit('click');
   await tick();
-  assert.equal(h.session.view().loaded, false);
-  assert.equal(h.el('empty').textContent, 'Shared notes haven’t been loaded yet.');
+  assert.equal(h.session.view().loaded, true);
+  assert.equal(h.requests.at(-1).body.method, 'list');
   assert.equal(h.el('exact').textContent, '');
   assert.equal(h.el('review-warning').textContent, '');
 });
@@ -414,7 +427,7 @@ test('MOBILE: list is the only initial panel and new note opens a focused editor
   assert.equal(h.el('list-panel').hidden, true);
   assert.equal(h.el('editor-panel').hidden, false);
   assert.equal(h.doc.activeElement, h.el('title'));
-  assert.match(h.el('revision').textContent, /Draft · not saved or shared/);
+  assert.match(h.el('revision').textContent, /Draft · not saved/);
 });
 test('MOBILE: Back clears unsaved fields, returns to list and restores useful focus', async () => {
   const h = harness();
@@ -477,6 +490,7 @@ test('STATE: stale opened note cannot remove newer draft discard protection or s
       ? Promise.resolve(new Response(JSON.stringify({ result: { notes: [note] } })))
       : d.promise,
   );
+  await h.ready;
   await h.el('refresh').emit('click');
   await tick();
   const opening = h.el('notes').children[0].children[0].emit('click');
@@ -501,6 +515,7 @@ test('A11Y: failed note opening focuses a visible error summary after the row is
       ? Promise.resolve(new Response(JSON.stringify({ result: { notes: [note] } })))
       : Promise.reject(Error('UNAVAILABLE')),
   );
+  await h.ready;
   await h.el('refresh').emit('click');
   await tick();
   await h.el('notes').children[0].children[0].emit('click');
@@ -517,4 +532,358 @@ test('A11Y: oversize publication validation focuses the visible summary without 
   assert.equal(h.el('review').open, false);
   assert.equal(h.doc.activeElement, h.el('status'));
   assert.match(h.el('status').textContent, /not been truncated/);
+});
+
+test('FOCUSED: initial entry loads metadata only without reading bodies', async () => {
+  const h = harness();
+  await h.ready;
+  assert.deepEqual(
+    h.requests.map((r) => r.body.method),
+    ['list'],
+  );
+  assert.equal(h.session.view().loaded, true);
+  assert.equal(h.el('empty').textContent, 'No shared notes yet.');
+});
+test('FOCUSED: initial loading and failed metadata states never imply an empty catalog', async () => {
+  const d = deferred(),
+    h = harness({ transport: () => d.promise });
+  assert.equal(h.el('empty').textContent, 'Loading shared notes…');
+  d.reject(Error('STORAGE_UNAVAILABLE'));
+  await h.ready;
+  assert.equal(h.session.view().loaded, false);
+  assert.match(h.el('empty').textContent, /Could not load/);
+  assert.match(h.el('status').textContent, /unavailable/);
+});
+test('FOCUSED: exact row selection opens read-only detail; Edit is explicit', async () => {
+  const note = { note_id: uuid(), revision: 3, title: 'Read only' },
+    h = harness();
+  viaIngress(h, fixtureStore([note]));
+  await h.ready;
+  await h.el('refresh').emit('click');
+  await h.el('notes').children[0].children[0].emit('click');
+  assert.equal(h.el('detail-panel').hidden, false);
+  assert.equal(h.el('editor').hidden, true);
+  assert.equal(h.el('detail-body').textContent, 'Body');
+  assert.equal(h.el('body').value, '');
+  assert.deepEqual(h.requests.at(-1).body.params, { note_id: note.note_id, revision: 3 });
+  assert.equal(h.doc.activeElement, h.el('detail-heading'));
+  await h.el('edit').emit('click');
+  assert.equal(h.el('detail-panel').hidden, true);
+  assert.equal(h.el('editor').hidden, false);
+  assert.equal(h.el('body').value, 'Body');
+  assert.equal(h.doc.activeElement, h.el('title'));
+});
+test('A11Y: delayed publish immediately clears review, announces Publishing and focuses pending heading', async () => {
+  const d = deferred(),
+    h = harness();
+  await draft(h);
+  h.setTransport(() => d.promise);
+  await review(h);
+  const pending = h.el('confirm').emit('click');
+  await tick();
+  assert.equal(h.el('review').open, false);
+  assert.equal(h.el('exact').textContent, '');
+  assert.equal(h.el('pending').hidden, false);
+  assert.equal(h.el('pending-heading').textContent, 'Publishing…');
+  assert.equal(h.el('status').textContent, 'Publishing…');
+  assert.equal(h.doc.activeElement, h.el('pending-heading'));
+  assert.equal(h.el('check').disabled, true);
+  d.reject(Error('REQUEST_TIMEOUT'));
+  await pending;
+  assert.equal(h.el('pending-heading').textContent, 'Publish result not confirmed');
+});
+test('A11Y: delayed revoke immediately announces Stopping access and focuses pending heading', async () => {
+  const note = { note_id: uuid(), revision: 1, title: 'Revokable' },
+    h = harness();
+  viaIngress(h, fixtureStore([note]));
+  await h.ready;
+  await h.el('refresh').emit('click');
+  await h.el('notes').children[0].children[0].emit('click');
+  await h.el('revoke').emit('click');
+  const d = deferred();
+  h.setTransport(() => d.promise);
+  const pending = h.el('confirm').emit('click');
+  await tick();
+  assert.equal(h.el('pending-heading').textContent, 'Stopping access…');
+  assert.equal(h.el('status').textContent, 'Stopping access…');
+  assert.equal(h.doc.activeElement, h.el('pending-heading'));
+  d.reject(Error('REQUEST_TIMEOUT'));
+  await pending;
+});
+test('A11Y: visible idle clearing focuses surviving non-input list heading and announces clearing', async () => {
+  for (const mode of ['list', 'draft', 'review']) {
+    const h = harness();
+    await h.ready;
+    if (mode !== 'list') await draft(h);
+    if (mode === 'review') await review(h);
+    else h.el(mode === 'draft' ? 'body' : 'new').focus();
+    [...h.timers.values()].find((t) => t.ms === 120000).fn();
+    assert.equal(h.doc.activeElement, h.el('list-heading'));
+    assert.match(h.el('status').textContent, /Local text cleared/);
+    assert.equal(h.el('body').value, '');
+    assert.equal(h.el('exact').textContent, '');
+  }
+});
+test('A11Y: hidden clearing never steals focus or automatically reloads metadata on return', async () => {
+  const h = harness();
+  await draft(h);
+  h.el('body').focus();
+  h.doc.hidden = true;
+  const before = h.requests.length;
+  await h.event(h.doc, 'visibilitychange');
+  assert.equal(h.doc.activeElement, h.el('body'));
+  h.doc.hidden = false;
+  await h.event(h.doc, 'visibilitychange');
+  assert.equal(h.requests.length, before);
+  assert.match(h.el('status').textContent, /Local text cleared/);
+});
+test('STATE: confirmed mutation after concealment cannot reload metadata or steal newer focus', async () => {
+  const h = harness(),
+    d = deferred();
+  await draft(h);
+  h.setTransport(() => d.promise);
+  await review(h);
+  const pending = h.el('confirm').emit('click');
+  await tick();
+  await h.el('clear').emit('click');
+  const before = h.requests.length;
+  h.el('clear').focus();
+  const args = h.requests.find((r) => r.body.method === 'publish').body.params;
+  d.resolve(
+    new Response(
+      JSON.stringify({ result: { note_id: args.note_id, revision: 1, state: 'shared' } }),
+    ),
+  );
+  await pending;
+  assert.equal(h.requests.length, before);
+  assert.equal(h.doc.activeElement, h.el('clear'));
+  assert.equal(h.session.view().loaded, false);
+  assert.equal(h.el('body').value, '');
+});
+test('A11Y: idle clearing during a mutation announces clearing and retains pending focus', async () => {
+  const h = harness(),
+    d = deferred();
+  await draft(h);
+  h.setTransport(() => d.promise);
+  await review(h);
+  const pending = h.el('confirm').emit('click');
+  await tick();
+  [...h.timers.values()].find((t) => t.ms === 120000).fn();
+  assert.equal(h.doc.activeElement, h.el('pending-heading'));
+  assert.match(h.el('status').textContent, /Local text cleared/);
+  assert.equal(h.el('body').value, '');
+  assert.equal(h.session.view().pending.canRetry, false);
+  d.reject(Error('REQUEST_TIMEOUT'));
+  await pending;
+});
+test('A11Y: pending status lookup does not claim another publication is being sent', async () => {
+  const h = harness();
+  await draft(h);
+  h.setTransport(async () => {
+    throw Error('REQUEST_TIMEOUT');
+  });
+  await review(h);
+  await h.el('confirm').emit('click');
+  const d = deferred();
+  h.setTransport(() => d.promise);
+  const checking = h.el('check').emit('click');
+  await tick();
+  assert.equal(h.el('status').textContent, 'Checking status…');
+  assert.doesNotMatch(h.el('pending-heading').textContent, /Publishing/);
+  d.resolve(
+    new Response(
+      JSON.stringify({ result: { matched: false, current_revision: null, state: null } }),
+    ),
+  );
+  await checking;
+});
+test('PRIVACY: read-only body clears on every conceal path without automatic reread', async () => {
+  for (const trigger of [
+    (h) => h.el('clear').emit('click'),
+    async (h) => {
+      h.doc.hidden = true;
+      await h.event(h.doc, 'visibilitychange');
+    },
+    (h) => h.event(h.window, 'pagehide'),
+    (h) => h.event(h.window, 'pageshow', { persisted: true }),
+    async (h) => [...h.timers.values()].find((t) => t.ms === 120000).fn(),
+  ]) {
+    const h = harness(),
+      note = { note_id: uuid(), revision: 1, title: 'Read me' };
+    viaIngress(h, fixtureStore([note]));
+    await h.ready;
+    await h.el('refresh').emit('click');
+    await h.el('notes').children[0].children[0].emit('click');
+    assert.equal(h.el('detail-body').textContent, 'Body');
+    const before = h.requests.length;
+    await trigger(h);
+    assert.equal(h.el('detail-body').textContent, '');
+    assert.equal(h.el('detail-heading').textContent, '');
+    assert.equal(h.session.view().draft, null);
+    assert.equal(h.requests.length, before);
+  }
+});
+test('REVIEW: stale status completion cannot reset a newer status activity announcement', async () => {
+  const h = harness();
+  await draft(h);
+  h.setTransport(async () => {
+    throw Error('REQUEST_TIMEOUT');
+  });
+  await review(h);
+  await h.el('confirm').emit('click');
+  const a = deferred(),
+    b = deferred();
+  let count = 0;
+  h.setTransport(() => (++count === 1 ? a.promise : b.promise));
+  const first = h.el('check').emit('click');
+  await tick();
+  await h.el('clear').emit('click');
+  const second = h.el('check').emit('click');
+  await tick();
+  a.resolve(
+    new Response(
+      JSON.stringify({ result: { matched: false, current_revision: null, state: null } }),
+    ),
+  );
+  await first;
+  assert.equal(h.session.view().busy, true);
+  assert.match(h.el('status').textContent, /Checking status…/);
+  b.resolve(
+    new Response(
+      JSON.stringify({ result: { matched: false, current_revision: null, state: null } }),
+    ),
+  );
+  await second;
+  assert.equal(h.session.view().busy, false);
+});
+test('REVIEW: confirmed publish followed by failed list refresh stays explicitly confirmed', async () => {
+  const h = harness();
+  await draft(h);
+  h.setTransport((_path, opts) => {
+    const request = JSON.parse(opts.body);
+    if (request.method === 'list') throw Error('STORAGE_UNAVAILABLE');
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          result: { note_id: request.params.note_id, revision: 1, state: 'shared' },
+        }),
+      ),
+    );
+  });
+  await review(h);
+  await h.el('confirm').emit('click');
+  assert.equal(h.session.view().pending, null);
+  assert.match(h.el('status').textContent, /Published\./);
+  assert.match(h.el('status').textContent, /list could not be refreshed/);
+  assert.doesNotMatch(h.el('status').textContent, /A write may still have completed/);
+});
+test('REVIEW: confirmed revoke followed by failed list refresh stays explicitly confirmed', async () => {
+  const h = harness(),
+    note = { note_id: uuid(), revision: 1, title: 'Revokable' };
+  viaIngress(h, fixtureStore([note]));
+  await h.ready;
+  await h.el('refresh').emit('click');
+  await h.el('notes').children[0].children[0].emit('click');
+  await h.el('revoke').emit('click');
+  h.setTransport((_path, opts) => {
+    const request = JSON.parse(opts.body);
+    if (request.method === 'list') throw Error('STORAGE_UNAVAILABLE');
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ result: { note_id: note.note_id, revision: 2, state: 'revoked' } }),
+      ),
+    );
+  });
+  await h.el('confirm').emit('click');
+  assert.equal(h.session.view().pending, null);
+  assert.match(h.el('status').textContent, /Revoked for future reads/);
+  assert.match(h.el('status').textContent, /list could not be refreshed/);
+});
+test('REVIEW: confirmed status receipt followed by failed list refresh stays explicitly confirmed', async () => {
+  const h = harness();
+  await draft(h);
+  h.setTransport(async () => {
+    throw Error('REQUEST_TIMEOUT');
+  });
+  await review(h);
+  await h.el('confirm').emit('click');
+  h.setTransport((_path, opts) => {
+    const request = JSON.parse(opts.body);
+    if (request.method === 'list') throw Error('STORAGE_UNAVAILABLE');
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          result: { matched: true, kind: 'publish', current_revision: 1, state: 'shared' },
+        }),
+      ),
+    );
+  });
+  await h.el('check').emit('click');
+  assert.equal(h.session.view().pending, null);
+  assert.match(h.el('status').textContent, /Published\./);
+  assert.match(h.el('status').textContent, /list could not be refreshed/);
+});
+test('A11Y: confirmed write moves focus to list before delayed metadata refresh settles', async () => {
+  const h = harness(),
+    list = deferred();
+  await draft(h);
+  h.setTransport((_path, opts) => {
+    const request = JSON.parse(opts.body);
+    if (request.method === 'list') return list.promise;
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          result: { note_id: request.params.note_id, revision: 1, state: 'shared' },
+        }),
+      ),
+    );
+  });
+  await review(h);
+  const publishing = h.el('confirm').emit('click');
+  await tick();
+  assert.equal(h.session.view().pending, null);
+  assert.equal(h.session.view().busy, true);
+  assert.equal(h.el('pending').hidden, true);
+  assert.equal(h.doc.activeElement, h.el('list-heading'));
+  list.resolve(new Response(JSON.stringify({ result: { notes: [] } })));
+  await publishing;
+});
+test('REVIEW: unmatched status keeps the uncertainty explanation visible with retained draft', async () => {
+  const h = harness();
+  await draft(h);
+  h.setTransport(async () => {
+    throw Error('REQUEST_TIMEOUT');
+  });
+  await review(h);
+  await h.el('confirm').emit('click');
+  h.setTransport(
+    async () =>
+      new Response(
+        JSON.stringify({ result: { matched: false, current_revision: null, state: null } }),
+      ),
+  );
+  await h.el('check').emit('click');
+  assert.ok(h.session.view().pending);
+  assert.ok(h.session.view().draft);
+  assert.match(h.el('status').textContent, /No matching latest receipt/);
+});
+test('A11Y: late confirmed mutation moves focus only when cleared pending heading disappears', async () => {
+  const h = harness(),
+    d = deferred();
+  await draft(h);
+  h.setTransport(() => d.promise);
+  await review(h);
+  const publishing = h.el('confirm').emit('click');
+  await tick();
+  await h.el('clear').emit('click');
+  assert.equal(h.doc.activeElement, h.el('pending-heading'));
+  const args = h.requests.find((r) => r.body.method === 'publish').body.params;
+  d.resolve(
+    new Response(
+      JSON.stringify({ result: { note_id: args.note_id, revision: 1, state: 'shared' } }),
+    ),
+  );
+  await publishing;
+  assert.equal(h.doc.activeElement, h.el('list-heading'));
+  assert.equal(h.session.view().loaded, false);
 });

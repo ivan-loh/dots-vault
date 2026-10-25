@@ -4268,6 +4268,7 @@ function lock(reason = "Vault locked.") {
   }
   state.session = null;
   state.busy = false;
+  state.busyToken = null;
   state.unlockKind = "password";
   for (const input of $2("main").querySelectorAll("input,textarea")) input.value = "";
   closeAll();
@@ -4324,11 +4325,12 @@ function modal(heading, description, build) {
   const dialog = el("dialog", { "aria-label": heading });
   dialogs.add(dialog);
   let closed = false;
-  const error = el("div", { class: "form-error", role: "alert", hidden: true });
+  const error = el("div", { class: "form-error", role: "alert", tabindex: "-1", hidden: true });
   const token = gate.begin();
   const finish = () => {
     if (closed) return;
     closed = true;
+    if (state.busyToken === token) { state.busy = false; state.busyToken = null; }
     gate.invalidate();
     disposeTemporary(token);
     clearDialog(dialog);
@@ -4344,7 +4346,7 @@ function modal(heading, description, build) {
     if (state.dirty && !confirm("Discard this unsaved form? It will not be recoverable after closing.")) return;
     finish();
   };
-  dialog.append(el("div", { class: "dialog-head" }, el("div", {}, el("h2", {}, heading), el("p", {}, description)), el("button", { class: "close-button", type: "button", "aria-label": "Close dialog", onclick: close }, "\xD7")));
+  dialog.append(el("div", { class: "dialog-head" }, el("div", {}, el("h2", {}, heading), description ? el("p", {}, description) : null), el("div", { class: "dialog-controls" }, el("button", { class: "button subtle", type: "button", "data-dialog-lock": true, hidden: !hasOwnedKeys(), onclick: () => lock() }, "Lock"), el("button", { class: "close-button", type: "button", "aria-label": "Close dialog", onclick: close }, "\xD7"))));
   const body = el("div", { class: "dialog-body" });
   dialog.append(body);
   document.body.append(dialog);
@@ -4355,9 +4357,10 @@ function modal(heading, description, build) {
   dialog.addEventListener("close", finish);
   const context = { body, dialog, token, finish, cancel: close, error, current: () => !closed && gate.current(token) && dialog.isConnected, showError: (e) => {
     if (!closed) {
-      error.replaceChildren(document.createTextNode(message(e)));
+      error.replaceChildren(document.createTextNode(e.uiHelp ? `${message(e)} ${e.uiHelp}` : message(e)));
       if (state.pending) error.append(button("Check save status", () => checkPending(), "secondary"));
       error.hidden = false;
+      if (!document.hidden && dialog.isConnected) error.focus();
     }
   } };
   build(context);
@@ -4376,6 +4379,7 @@ function submitForm(ctx, content, label, action) {
       return;
     }
     state.busy = true;
+    state.busyToken = ctx.token;
     submit.disabled = true;
     ctx.error.hidden = true;
     try {
@@ -4383,7 +4387,7 @@ function submitForm(ctx, content, label, action) {
     } catch (error) {
       ctx.showError(error);
     } finally {
-      state.busy = false;
+      if (state.busyToken === ctx.token) { state.busy = false; state.busyToken = null; }
       if (submit.isConnected) submit.disabled = false;
     }
   });
@@ -4536,7 +4540,7 @@ function unlockForm(main) {
   secret.input.setAttribute("autocomplete", recovery ? "off" : "current-password");
   secret.input.setAttribute("required", "");
   secret.input.setAttribute("aria-describedby", "unlock-error unlock-help");
-  const error = el("p", { id: "unlock-error", class: "form-error", role: "alert", hidden: true });
+  const error = el("p", { id: "unlock-error", class: "form-error", role: "alert", tabindex: "-1", hidden: true });
   const submit = el("button", { class: "button unlock-submit", type: "submit" }, "Unlock vault");
   const alternate = button(recovery ? "Use master password" : "Use a recovery key", () => {
     if (state.busy) return;
@@ -4590,30 +4594,34 @@ function unlockForm(main) {
   main.append(form, el("p", { id: "unlock-help", class: "compact-note" }, "Decryption happens in this browser. Your password is not sent to the server."));
 }
 function header(eyebrow, heading, description, action) {
-  return el("div", { class: "page-heading" }, el("div", {}, el("p", { class: "eyebrow" }, eyebrow), el("h1", {}, heading), el("p", { class: "lead" }, description)), action);
+  return el("div", { class: "page-heading" }, el("div", {}, eyebrow ? el("p", { class: "eyebrow" }, eyebrow) : null, el("h1", {}, heading), description ? el("p", { class: "lead" }, description) : null), action);
 }
 function render() {
   const unlocked = Boolean(state.session && !state.session.locked), keysPresent = hasOwnedKeys();
   const privateView = unlocked && !state.pending;
+  for (const dialog of dialogs) for (const control of dialog.querySelectorAll("button")) if (control.getAttribute("data-dialog-lock") !== null) control.hidden = !keysPresent;
   document.body.classList.toggle("is-locked", !privateView);
   $2("mode-warning").hidden = state.mode !== "synthetic";
   $2("mode-warning").replaceChildren(el("strong", {}, "Synthetic data only"), el("span", {}, "Do not enter real passwords or recovery material. This evaluation is not production-ready."));
-  $2("view-name").textContent = { vault: "Logins", contacts: "Contacts", notes: "Private notes", security: "Security" }[state.view];
+  $2("view-name").textContent = { vault: "Logins", contacts: "Contacts", notes: "Private notes", security: "Settings" }[state.view];
   $2("lock-status").textContent = unlocked ? "Unlocked in this browser" : keysPresent ? "Temporary keys in this browser" : "Locked";
   $2("lock-status").className = `pill ${keysPresent ? "active" : ""}`;
   $2("lock-button").hidden = !keysPresent;
   $2("lock-button").onclick = () => lock();
   $2("topbar").hidden = !keysPresent;
-  $2("private-footer").hidden = !privateView;
+  $2("private-footer").hidden = true;
   $2("sidebar-bottom").hidden = !privateView;
-  $2("sidebar-label").hidden = !privateView;
-  $2("navigation").replaceChildren(...(privateView ? [["vault", "\u25A6", "Logins"], ["notes", "\u25A4", "Private notes"], ["contacts", "\u25CE", "Contacts"], ["security", "\u25C7", "Security"]].map(([view, icon, label]) => el("button", { type: "button", class: `nav-button ${state.view === view ? "selected" : ""}`, "aria-current": state.view === view ? "page" : null, onclick: () => {
+  $2("sidebar-label").hidden = true;
+  $2("settings-button").hidden = !privateView;
+  $2("settings-button").onclick = () => { state.view = "security"; render(); $2("main").focus(); };
+  $2("navigation").replaceChildren(...(privateView ? [["vault", "Logins"], ["notes", "Private notes"], ["contacts", "Contacts"]].map(([view, label]) => el("button", { type: "button", class: `nav-button ${state.view === view ? "selected" : ""}`, "aria-current": state.view === view ? "page" : null, onclick: () => {
     state.view = view;
     render();
     $2("main").focus();
-  } }, el("span", { class: "nav-icon", "aria-hidden": "true" }, icon), label)) : []));
-  const main = $2("main");
+  } }, label)) : []));
+  const main = $2("main"), previousFocus = document.activeElement;
   main.replaceChildren();
+  if (!document.hidden && !dialogs.size && previousFocus && !previousFocus.isConnected) main.focus();
   if (state.pending) { pendingView(main); return; }
   if (state.mode === "loading") {
     main.append(header("", "Checking your vault…", "Verifying owner access and encrypted storage."));
@@ -4638,62 +4646,48 @@ function lockedView(main) {
 }
 function listView(main) {
   const isContacts = state.view === "contacts", isNotes = state.view === "notes";
-  main.append(header("ENCRYPTED IN THIS BROWSER", isContacts ? "Contacts" : isNotes ? "Private notes" : "Logins", isContacts ? "No sync, remote avatars or automatic links." : isNotes ? "Private encrypted notes, not shared with dots." : "Passwords and logins, encrypted in your private vault.", button(isContacts ? "Add contact" : isNotes ? "Add private note" : "Add login", () => edit(null, isContacts ? "contact" : isNotes ? "note" : "login"))));
-  const search = el("input", { type: "search", placeholder: isContacts ? "Search contacts" : isNotes ? "Search private notes" : "Search logins", "aria-label": isContacts ? "Search contacts" : isNotes ? "Search private notes" : "Search vault", autocomplete: "off" }), grid = el("div", { class: "entry-grid" });
+  const heading = isContacts ? "Contacts" : isNotes ? "Private notes" : "Logins";
+  main.append(header("", heading, "", button(isContacts ? "Add contact" : isNotes ? "Add private note" : "Add login", () => edit(null, isContacts ? "contact" : isNotes ? "note" : "login"))));
+  const search = el("input", { type: "search", placeholder: `Search ${heading.toLowerCase()}`, "aria-label": `Search ${heading.toLowerCase()}`, autocomplete: "off" }), grid = el("div", { class: "entry-grid" });
   const draw = () => {
     let items = live().items().filter((item) => isContacts ? item.type === "contact" : isNotes ? item.type === "note" : item.type === "login");
     const query = search.value.toLocaleLowerCase();
     if (query) items = items.filter((item) => Object.values(item).filter((v2) => typeof v2 === "string" || Array.isArray(v2)).join(" ").toLocaleLowerCase().includes(query));
-    grid.replaceChildren(...items.map((item) => el("button", { class: "entry", type: "button", onclick: () => details(item.id) }, el("span", { class: "entry-icon", "aria-hidden": "true" }, item.type === "contact" ? "\u25CE" : item.type === "note" ? "\u25A4" : "\u25C8"), el("span", { class: "entry-body" }, el("strong", {}, title(item)), el("small", {}, item.type === "contact" ? item.organization || "Private contact" : item.type === "note" ? "Secure note" : item.username || "Login")), el("span", { class: "entry-arrow", "aria-hidden": "true" }, "\u2197"))));
-    if (!items.length) grid.append(el("div", { class: "card empty" }, el("h2", {}, query ? "No matching entries" : isContacts ? "No contacts" : isNotes ? "No private notes" : "No logins"), el("p", {}, query ? "Search stays in this browser." : copy("Add a synthetic example to explore encrypted storage.", "Start with a synthetic entry and verify your encrypted backup before relying on this vault."))));
+    grid.replaceChildren(...items.map((item) => el("button", { class: "entry", type: "button", onclick: () => details(item.id) }, el("span", { class: "entry-body" }, el("strong", {}, title(item)), item.type === "contact" && item.organization || item.type === "login" && item.username ? el("small", {}, item.type === "contact" ? item.organization : item.username) : null))));
+    if (!items.length) grid.append(el("p", { class: "empty" }, query ? "No matching entries." : `No ${heading.toLowerCase()} yet.`));
   };
-  search.addEventListener("input", () => {
-    state.lastActive = Date.now();
-    draw();
-  });
-  main.append(el("div", { class: "vault-toolbar" }, el("div", { class: "search" }, search), el("span", { class: "pill active" }, "Local search only")), grid, notice("Locking clears this view and unsaved edits. The server stores ciphertext, but can observe record sizes and activity.", true));
+  search.addEventListener("input", () => { state.lastActive = Date.now(); draw(); });
+  main.append(el("div", { class: "vault-toolbar" }, el("div", { class: "search" }, search)), grid);
   draw();
 }
 function edit(item = null, type = "login") {
   live();
-  modal(item ? "Edit entry" : type === "contact" ? "New contact" : "New vault entry", copy("Use synthetic details only. Every item field is encrypted before saving.", "Every item field is encrypted in this browser before saving. Private entries are not shared with dots."), (ctx) => {
-    let kind = type;
-    const inputs = {};
-    const formFields = el("div");
-    const select = el("select", { "aria-label": "Entry type" }, el("option", { value: "login" }, "Login"), el("option", { value: "note" }, "Secure note"));
-    select.value = item?.type ?? kind;
-    kind = item?.type ?? kind;
-    function fields() {
-      formFields.replaceChildren();
-      for (const key of Object.keys(inputs)) delete inputs[key];
-      const defs = kind === "contact" ? [["name", "Full name", "text"], ["organization", "Organization", "text"], ["emails", "Emails, one per line", "textarea"], ["phones", "Phone numbers, one per line", "textarea"], ["addresses", "Addresses, one per line", "textarea"], ["notes", "Notes", "textarea"]] : [["title", "Title", "text"], ...kind === "login" ? [["username", "Username", "text"], ["password", "Password", "password"], ["url", "Website URL (text only)", "text"]] : [], ["notes", "Notes", "textarea"]];
-      for (const [key, label, t2] of defs) {
-        const value = item?.[key] ?? "";
-        const f2 = field(label, t2, Array.isArray(value) ? value.join("\n") : value);
-        inputs[key] = f2.input;
-        formFields.append(f2.node);
-      }
+  const kind = item?.type ?? type;
+  const label = kind === "contact" ? "contact" : kind === "note" ? "private note" : "login";
+  modal(`${item ? "Edit" : "Add"} ${label}`, copy("Synthetic details only.", ""), (ctx) => {
+    const inputs = {}, formFields = el("div"), optionalFields = el("details", { class: "optional-fields" }, el("summary", {}, "More details"));
+    const defs = kind === "contact" ? [["name", "Name", "text"], ["emails", "Email", "textarea"], ["phones", "Phone", "textarea"], ["organization", "Organization", "text", true], ["addresses", "Address", "textarea", true], ["notes", "Notes", "textarea", true]] : [["title", "Title", "text"], ...kind === "login" ? [["username", "Username", "text"], ["password", "Password", "password"], ["url", "Website", "text", true]] : [], ["notes", kind === "note" ? "Note" : "Notes", "textarea", kind === "login"]];
+    for (const [key, fieldLabel, fieldType, optional] of defs) {
+      const value = item?.[key] ?? "";
+      const help = ["emails", "phones", "addresses"].includes(key) ? "One per line." : "";
+      const f2 = field(fieldLabel, fieldType, Array.isArray(value) ? value.join("\n") : value, help);
+      inputs[key] = f2.input;
+      (optional ? optionalFields : formFields).append(f2.node);
+      if (optional && value.length) optionalFields.setAttribute("open", "");
     }
-    fields();
-    select.addEventListener("change", () => {
-      if (state.dirty && !confirm("Changing type clears this form. Continue?")) {
-        select.value = kind;
-        return;
-      }
-      kind = select.value;
-      fields();
-      state.dirty = false;
-    });
-    submitForm(ctx, [kind !== "contact" && !item ? el("label", { class: "field" }, el("span", {}, "Entry type"), select) : null, formFields], "Save encrypted entry", async () => {
+    if (kind !== "note") formFields.append(optionalFields);
+    submitForm(ctx, [formFields], `Save ${label}`, async () => {
       const session = live();
       const data = kind === "contact" ? { type: kind, name: inputs.name.value, organization: inputs.organization.value, emails: inputs.emails.value ? inputs.emails.value.split("\n") : [], phones: inputs.phones.value ? inputs.phones.value.split("\n") : [], addresses: inputs.addresses.value ? inputs.addresses.value.split("\n") : [], notes: inputs.notes.value } : { type: kind, title: inputs.title.value, username: inputs.username?.value ?? "", password: inputs.password?.value ?? "", url: inputs.url?.value ?? "", notes: inputs.notes.value };
-      validateItem(data);
+      try { validateItem(data); }
+      catch (error) {
+        if (kind !== "note") optionalFields.setAttribute("open", "");
+        error.uiHelp = kind === "contact" ? "Check Name (1–120 characters), Email format and one value per line (up to 10). Organization allows 200 characters, Phone 64, Address 1,000 and Notes 8,192 bytes." : "Check Title (1–120 characters) and Note (up to 8,192 bytes). Website must be a full https:// or http:// address without embedded credentials. Username allows 320 characters and Password 4,096 bytes.";
+        throw error;
+      }
       const candidate = await session.put(data, item?.id ?? null);
       await saveCandidate(session, candidate, ctx.token);
-      ctx.finish();
-      event("Encrypted entry saved");
-      render();
-      toast("Saved encrypted.");
+      ctx.finish(); event("Encrypted entry saved"); render(); toast("Saved encrypted.");
     });
   });
 }
@@ -4751,7 +4745,13 @@ function details(id2) {
 }
 function securityView(main) {
   const session = live();
-  main.append(header("YOUR KEYS. YOUR RESPONSIBILITY.", "Security & recovery", "Encryption protects stored content. Browser, deployment and recovery choices still matter."), notice(copy("Evaluation only. No independent security audit has approved real credentials. No verified owner-only Site is deployed.", "No independent professional security audit has been completed. This is a new custom vault: test recovery, keep backups, and understand the browser and deployment risks.")), el("div", { class: "split" }, el("section", { class: "card settings-card" }, el("h2", {}, "Encrypted backup"), el("p", {}, "Export the complete encrypted vault. Restore imports data with fresh item keys; it never revives old access wrappers."), button("Export encrypted backup", exportBackup, "secondary"), button("Restore encrypted backup", () => restore(false), "subtle")), el("section", { class: "card settings-card" }, el("h2", {}, "Master password"), el("p", {}, "Changing a password rewraps the current master key. It does not revoke old backups or remediate a compromised key."), button(copy("Change test password", "Change master password"), () => keyChange(false), "secondary")), el("section", { class: "card settings-card" }, el("h2", {}, "Recovery key"), el("p", {}, session.envelope.recoveryWrap ? "A recovery key is enabled. This app cannot show it again." : "No recovery key is configured. Losing the password means losing access."), button("Replace recovery key", () => recoveryChange(true), "secondary"), session.envelope.recoveryWrap ? button("Disable recovery-key access", () => recoveryChange(false), "subtle") : null), el("section", { class: "card settings-card" }, el("h2", {}, "Rotate all encryption keys"), el("p", {}, "Creates a new master key and item keys, replaces access wrappers and re-encrypts current data. Old backups remain a separate exposure."), button(copy("Rotate test vault keys", "Rotate vault keys"), () => keyChange(true), "secondary"))), el("section", { class: "card settings-card" }, el("h2", {}, "What this does not solve"), el("p", {}, "A malicious app update, browser extension or compromised device can read an unlocked vault. JavaScript memory clearing is best effort. A complete replay of an older valid encrypted vault needs a trusted freshness anchor to detect. There is no tamper-evident audit or automatic backup service."), el("p", {}, "Automatic locking: two minutes of inactivity, leaving this tab, page lifecycle changes, or an authorization failure. Unsaved forms are discarded when locked.")), dotBoundary());
+  const group = (heading, ...content) => el("details", { class: "settings-group" }, el("summary", {}, heading), el("div", { class: "settings-content" }, content));
+  main.append(header("", "Settings", ""),
+    group("Encrypted backup", el("p", {}, "Export the complete encrypted vault. Restore imports data with fresh item keys; it never revives old access wrappers."), button("Export encrypted backup", exportBackup, "secondary"), button("Restore encrypted backup", () => restore(false), "subtle")),
+    group("Master password", el("p", {}, "Changing a password rewraps the current master key. It does not revoke old backups or remediate a compromised key."), button(copy("Change test password", "Change master password"), () => keyChange(false), "secondary")),
+    group("Recovery key", el("p", {}, session.envelope.recoveryWrap ? "A recovery key is enabled. This app cannot show it again." : "No recovery key is configured. Losing the password means losing access."), button("Replace recovery key", () => recoveryChange(true), "secondary")),
+    group("Advanced", el("p", {}, "Rotation creates a new master key and item keys, replaces access wrappers and re-encrypts current data. Old backups remain a separate exposure."), button(copy("Rotate test vault keys", "Rotate vault keys"), () => keyChange(true), "secondary"), session.envelope.recoveryWrap ? [el("p", {}, "Disabling recovery removes the current recovery wrapper, not old backups. Losing the master password then means losing access."), button("Disable recovery-key access", () => recoveryChange(false), "subtle")] : null),
+    group("Security & help", notice(copy("Evaluation only. No independent security audit has approved real credentials. No verified owner-only Site is deployed.", "Not independently audited. Test recovery and keep encrypted backups before relying on this vault.")), el("p", {}, "A malicious app update, browser extension or compromised device can read an unlocked vault. JavaScript memory clearing is best effort. A complete replay of an older valid encrypted vault needs a trusted freshness anchor to detect. There is no tamper-evident audit or automatic backup service."), el("p", {}, "Automatic locking: two minutes of inactivity, leaving this tab, page lifecycle changes, or an authorization failure. Unsaved forms are discarded when locked."), el("p", {}, "Search stays in this browser. The server stores ciphertext but can observe record sizes and activity. Website and contact fields remain text, not automatic external links."), dotBoundary()));
 }
 function exportBackup() {
   try {
