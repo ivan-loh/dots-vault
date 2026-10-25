@@ -76,7 +76,7 @@ export function validateProtocol(request, rpc) {
     if (rpc.method === 'server/discover') object(params, ['_meta']);
     if (rpc.method === 'tools/list') {
       object(params, ['_meta'], ['cursor']);
-      // This complete two-tool catalog has never issued a pagination cursor.
+      // This complete catalog has never issued a pagination cursor.
       if (Object.hasOwn(params, 'cursor')) invalid();
     }
     if (rpc.method === 'tools/call') object(params, ['_meta', 'name'], ['arguments']);

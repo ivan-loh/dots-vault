@@ -4,8 +4,12 @@ The application uses the deployment's canonical `/mcp` endpoint through its supp
 
 ## Shared Notes
 
-- `list_shared_notes`: accepts exactly `{}`. Returns `notes`, containing published metadata with `note_id`, `revision`, and `title`.
-- `read_shared_note`: accepts exactly `{ "note_id": "<listed UUID>", "revision": <listed positive integer> }`. Returns the exact published note, including matching ID/revision, title, and body, or an error.
+- `list_shared_notes`: accepts exactly `{}` without filters or a cursor. Returns `{notes:[...]}`, containing published metadata with `note_id`, `revision`, and `title`, never bodies. This source supports at most 50 active published copies.
+- `read_shared_note`: accepts exactly `{ "note_id": "<listed UUID>", "revision": <listed positive integer> }`. Returns the top-level `{note_id,revision,title,body}` for that exact published copy, or an error.
+
+`note_id` is the exact listed lowercase UUIDv4. `revision` is the exact listed integer from 1 through 2147483647. No additional input properties are accepted.
+
+Require a successful tool result and `isError: false` when supplied. Use structured JSON when non-null; if `structuredContent` is absent or null, parse the JSON text content. A transport-level success can still contain `isError: true`. Missing or malformed expected fields are not an empty successful result. An empty `notes` array verifies listing only, not a note-body read or an empty private vault.
 
 Both require the configured trusted owner identity. Unknown fields, guessed identifiers, other owners, revoked copies, and stale revisions are not supported fallback routes. A failed or `UNAVAILABLE` response is not an empty successful note. Preserve exact returned identifiers and numeric revisions; do not coerce or invent them.
 
